@@ -13,4 +13,4 @@ RUN mkdir -p /opt/playwright && \
 USER appuser
 
 # Use the original base image startup command
-CMD ["supervisord", "-c", "supervisord.conf"]
+#CMD ["supervisord", "-c", "supervisord.conf"]
