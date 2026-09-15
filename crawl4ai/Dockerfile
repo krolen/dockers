@@ -1,4 +1,4 @@
-FROM unclecode/crawl4ai:0.8.9
+FROM unclecode/crawl4ai:0.9.3
 
 # Set a global path for Playwright browsers so all users can access them
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
