@@ -31,7 +31,22 @@ fi
 # Docker Hub repository names cannot contain path separators.  Use the resolved
 # directory's basename so `crawl4ai`, `./crawl4ai`, and an absolute path work alike.
 IMAGE_NAME="kkulagin/$(basename -- "$TARGET_DIR")"
-TAG="${2:-0.9.3}"
+TAG="${2:-}"
+if [ -z "$TAG" ]; then
+  # Read the first base image, allowing FROM --platform=... and AS aliases.
+  BASE_IMAGE="$(awk 'toupper($1) == "FROM" { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; exit } }' "$TARGET_DIR/Dockerfile")"
+  BASE_IMAGE="${BASE_IMAGE%%@*}"
+  BASE_NAME="${BASE_IMAGE##*/}"
+  if [[ "$BASE_NAME" != *:* ]]; then
+    echo "❌ Error: Base image has no explicit tag. Pass a tag as the second argument."
+    exit 1
+  fi
+  TAG="${BASE_NAME##*:}"
+  if [ -z "$TAG" ] || [[ "$TAG" == *'$'* ]]; then
+    echo "❌ Error: Base image tag could not be resolved. Pass a tag as the second argument."
+    exit 1
+  fi
+fi
 
 echo "🚀 Starting build and push process for ${IMAGE_NAME}:${TAG}..."
 

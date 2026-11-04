@@ -1,7 +1,10 @@
-FROM unclecode/crawl4ai:0.9.3
+FROM unclecode/crawl4ai:0.9.5
 
 # Set a global path for Playwright browsers so all users can access them
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+
+# Allow crawling trusted services on the local network
+ENV CRAWL4AI_ALLOW_INTERNAL_URLS=true
 
 # Switch to root to install chromium in a dedicated layer
 USER root
