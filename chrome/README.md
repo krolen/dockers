@@ -14,6 +14,51 @@ docker compose up -d
 - MCP (Streamable HTTP): http://localhost:8933/mcp (bearer token required)
 - DevTools Protocol (CDP): internal only; no host port published
 
+## Update
+
+Run the update script from any directory:
+
+```bash
+/home/kot/IdeaProjects/dockers/chrome/update.sh
+```
+
+The script pulls the latest Chromium image and rebuilds the MCP companion with
+`build --pull --no-cache` to refresh its Node base image and install the latest
+`chrome-devtools-mcp` and `supergateway` packages, then recreates both Chromium and
+the MCP companion so they share the new network namespace. This interrupts
+active browser and MCP connections; the profile in `~/docker-data/chrome/`
+is preserved. If the pull or build fails, the running containers are left in place.
+After the services are running, cleanup keeps the two newest images for each
+service separately, by image creation date, and removes older versions, including
+untagged ones identified by their image labels. MCP images built before the cleanup
+label was added are left untouched. It never prunes other images or
+forces removal. Images used by containers or protected by multiple tags remain;
+the deployed image is always preserved, even if upstream `latest` was rolled back.
+Run it as your normal user with Docker access so the home-directory mount
+continues to point to your profile.
+
+### Roll back MCP
+
+The previous MCP image is retained locally. Before updating, record its ID:
+
+```bash
+docker inspect --format '{{.Image}}' chrome-devtools-mcp
+```
+
+To restore it, run these commands from the `chrome/` directory, replacing
+`PREVIOUS_IMAGE_ID` with that ID:
+
+```bash
+mcp_image=$(docker inspect --format '{{.Config.Image}}' chrome-devtools-mcp)
+docker image tag PREVIOUS_IMAGE_ID "$mcp_image"
+docker compose up -d --no-deps --no-build --pull never --force-recreate chrome-devtools-mcp
+```
+
+This restores the packages bundled in that image. Avoid running the update script
+again until ready to retry the latest packages. Retention keeps only two versions,
+so a particular older image is not guaranteed to survive repeated updates or manual
+image pruning. Image rollback does not restore browser profile data.
+
 ## Notes
 
 - `lscr.io/linuxserver/chromium:latest` is now based on Selkies: it streams a full
@@ -51,7 +96,7 @@ docker exec chrome-stealth /usr/bin/chromium --version
 ## MCP: Chrome DevTools over the LAN
 
 `docker compose up -d --build` starts the browser and a companion container with
-chrome-devtools-mcp 1.12.0 and Supergateway 4.2.1. The companion shares Chrome's
+the latest chrome-devtools-mcp and Supergateway packages at build time. The companion shares Chrome's
 network namespace and connects to its internal `127.0.0.1:9222` listener.
 Supergateway exposes a stateful Streamable HTTP endpoint on port 8933.
 
