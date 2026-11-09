@@ -1,0 +1,54 @@
+services:
+  chrome-stealth:
+    # Selkies-based image: streams a full Chromium session to a web UI (port 3001)
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: chrome-stealth
+    security_opt:
+      # Carried over from the old Xvfb-based image; the current (Selkies)
+      # image works without it. Safe to remove the whole security_opt block.
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Toronto
+      # Chromium CLI flags, passed to the browser in full (NOT CHROMIUM_FLAGS -
+      # that var belongs to the old image and is ignored now).
+      #
+      # --user-data-dir is required for --remote-debugging-port to be honored on
+      # Chrome 136+. The wrapper's default dir lives in /config (persistent),
+      # so this keeps the profile stable across container restarts.
+      - CHROME_CLI=--remote-debugging-port=9222 --user-data-dir=/config/.config/chromium --disable-blink-features=AutomationControlled
+      # Optional: start on a specific page
+      # - CHROME_CLI=--remote-debugging-port=9222 --user-data-dir=/config/.config/chromium --disable-blink-features=AutomationControlled https://www.google.com
+    devices:
+      # Pin the AMD card so the container never sees the NVIDIA dGPU.
+      # This host has two GPUs:
+      #   card1 / renderD128  -> NVIDIA (PCI 01:00.0, vendor 0x10de)
+      #   card2 / renderD129  -> AMD    (PCI 12:00.0, vendor 0x1002)
+      # Mounting all of /dev/dri would let Chrome pick either card.
+      # Re-check the mapping if the numbers ever change:
+      #   for r in /sys/class/drm/renderD*; do echo "$r $(cat $r/device/vendor)"; done
+      #   (0x1002 = AMD, 0x10de = NVIDIA)
+      - /dev/dri/card2:/dev/dri/card2
+      - /dev/dri/renderD129:/dev/dri/renderD129
+    volumes:
+      - ~/docker-data/chrome:/config
+    ports:
+      - "127.0.0.1:3001:3001"  # Local-only Selkies web UI (HTTPS, self-signed cert)
+      - "8933:8933"  # Streamable HTTP MCP: /mcp
+    shm_size: "2gb"
+    restart: unless-stopped
+
+  chrome-devtools-mcp:
+    build: ./mcp
+    environment:
+      SUPERGATEWAY_API_KEY: ${SUPERGATEWAY_API_KEY:?Set SUPERGATEWAY_API_KEY in chrome/.env}
+    container_name: chrome-devtools-mcp
+    # Share Chrome's loopback so CDP is reachable without a proxy.
+    network_mode: "service:chrome-stealth"
+    depends_on:
+      chrome-stealth:
+        condition: service_started
+        restart: true
+    init: true
+    restart: unless-stopped
