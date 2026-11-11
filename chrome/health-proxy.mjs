@@ -7,7 +7,7 @@ const gatewayPort = 8934;
 const probeTimeoutMs = 2_000;
 const supervisorStatusFile =
   process.env.CHROME_SUPERVISOR_STATUS_FILE ??
-  "/chrome-config/.chromium-supervisor-status.json";
+  "/config/.chromium-supervisor-status.json";
 let shuttingDown = false;
 
 const gateway = spawn("supergateway", process.argv.slice(2), {
@@ -68,7 +68,7 @@ async function healthStatus() {
   if (!gatewayHealthy) {
     error = "MCP gateway is unavailable";
   } else if (supervisor.state === "failed") {
-    error = `Chromium exited after ${supervisor.max_restart_attempts} automatic restart attempts; recovery is latched until chrome-stealth is restarted`;
+    error = `Chromium exited after ${supervisor.max_restart_attempts} automatic restart attempts; recovery is latched until the container is restarted`;
   } else if (supervisor.state === "restarting") {
     error = `Chromium exited with code ${supervisor.last_exit_code}; automatic restart attempt ${supervisor.restart_attempts} of ${supervisor.max_restart_attempts} is pending`;
   } else if (!chromeHealthy) {

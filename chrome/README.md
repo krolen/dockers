@@ -1,111 +1,137 @@
-# chrome-stealth
+# Chromium MCP
 
-Local Chromium in a container, rendered on the AMD iGPU (via `/dev/dri`) instead of a
-dedicated GPU, with a persistent profile and remote DevTools access.
+One container providing a persistent Chromium desktop, Selkies web UI, and an
+authenticated Chrome DevTools MCP endpoint. Chromium renders on the host's AMD
+iGPU and is supervised with a bounded restart policy.
+
+The published image is `kkulagin/chrome`. It derives from LinuxServer Chromium
+and embeds Node.js, Chrome DevTools MCP, Supergateway, health reporting, and the
+Chromium supervisor; no source-code bind mounts or companion container are
+required at runtime.
 
 ## Run
 
-```bash
-docker compose up -d
+Create `chrome/.env` with the bearer token used by MCP clients:
+
+```dotenv
+SUPERGATEWAY_API_KEY=replace-with-a-long-random-token
 ```
 
-- Session web UI (Selkies): https://localhost:3001 (self-signed cert; bound to
-  127.0.0.1 only because the UI includes a passwordless terminal)
-- MCP (Streamable HTTP): http://localhost:8933/mcp (bearer token required)
-- DevTools Protocol (CDP): internal only; no host port published
+Then pull and start the container:
+
+```bash
+cd chrome  # from the repository root
+docker compose pull
+docker compose up -d --wait
+```
+
+- Session web UI: https://localhost:3001 (self-signed certificate, localhost
+  only because the UI includes a passwordless terminal)
+- MCP: http://localhost:8933/mcp (bearer token required)
+- Health: http://localhost:8933/healthz (unauthenticated)
+- CDP: internal loopback port 9222; not published to the host
+
+The only runtime data mount is `~/docker-data/chrome:/config`.
+
+## Image contents and build
+
+The Dockerfile pins the validated base-image digests and npm package versions.
+To build a local development image:
+
+```bash
+docker build --pull --tag kkulagin/chrome:dev .
+CHROME_IMAGE=kkulagin/chrome:dev docker compose up -d --force-recreate --wait
+```
+
+To publish a release, replace `1.0.0` with the intended immutable version:
+
+```bash
+docker build --pull \
+  --tag kkulagin/chrome:1.0.0 \
+  --tag kkulagin/chrome:latest \
+  .
+docker push kkulagin/chrome:1.0.0
+docker push kkulagin/chrome:latest
+```
+
+Never add `.env`, the MCP token, or browser-profile data to the image. The
+`.dockerignore` excludes `.env` from the build context.
 
 ## Update
 
 Run the update script from any directory:
 
 ```bash
-/home/kot/IdeaProjects/dockers/chrome/update.sh
+chrome/update.sh
 ```
 
-The script pulls the latest Chromium image and rebuilds the MCP companion with
-`build --pull --no-cache` to refresh its Node base image and install the latest
-`chrome-devtools-mcp` and `supergateway` packages, then recreates both Chromium and
-the MCP companion so they share the new network namespace. This interrupts
-active browser and MCP connections; the profile in `~/docker-data/chrome/`
-is preserved. If the pull or build fails, the running containers are left in place.
-After the services are running, cleanup keeps the two newest images for each
-service separately, by image creation date, and removes older versions, including
-untagged ones identified by their image labels. MCP images built before the cleanup
-label was added are left untouched. It never prunes other images or
-forces removal. Images used by containers or protected by multiple tags remain;
-the deployed image is always preserved, even if upstream `latest` was rolled back.
-Run it as your normal user with Docker access so the home-directory mount
-continues to point to your profile.
+It validates Compose, pulls `kkulagin/chrome:latest`, and recreates the single
+container only after a successful pull. This interrupts active browser and MCP
+connections, but preserves the profile under `~/docker-data/chrome/`. Cleanup
+keeps the two newest locally available custom images and never performs a broad
+image prune.
 
-### Roll back MCP
+### Roll back
 
-The previous MCP image is retained locally. Before updating, record its ID:
+Before updating, record the deployed image ID:
 
 ```bash
-docker inspect --format '{{.Image}}' chrome-devtools-mcp
+docker inspect --format '{{.Image}}' chrome-stealth
 ```
 
-To restore it, run these commands from the `chrome/` directory, replacing
-`PREVIOUS_IMAGE_ID` with that ID:
+To restore it, replace `PREVIOUS_IMAGE_ID` below:
 
 ```bash
-mcp_image=$(docker inspect --format '{{.Config.Image}}' chrome-devtools-mcp)
-docker image tag PREVIOUS_IMAGE_ID "$mcp_image"
-docker compose up -d --no-deps --no-build --pull never --force-recreate chrome-devtools-mcp
+docker image tag PREVIOUS_IMAGE_ID kkulagin/chrome:rollback
+CHROME_IMAGE=kkulagin/chrome:rollback docker compose up -d \
+  --no-build --pull never --force-recreate --wait
 ```
 
-This restores the packages bundled in that image. Avoid running the update script
-again until ready to retry the latest packages. Retention keeps only two versions,
-so a particular older image is not guaranteed to survive repeated updates or manual
-image pruning. Image rollback does not restore browser profile data.
+Image rollback does not roll back browser-profile data. Locally retained images
+are not guaranteed to survive manual pruning.
 
-## Notes
+## Chromium recovery and health
 
-- `lscr.io/linuxserver/chromium:latest` is now based on Selkies: it streams a full
-  Chromium desktop session over the web (port 3001), not a raw browser on 3000.
-- Flags go through `CHROME_CLI`, not `CHROMIUM_FLAGS` (the old env var is ignored).
-  The wrapper always adds `--no-sandbox --password-store=basic --test-type`
-  and uses a non-default `--user-data-dir`, which is required for
-  `--remote-debugging-port` to work on Chrome 136+.
-- This host has two GPUs, so only the AMD one is mounted (see the `devices:`
-  block in the compose file): card2 / renderD129 (PCI 12:00.0, vendor 0x1002).
-  The NVIDIA card (card1 / renderD128, PCI 01:00.0) is deliberately not passed
-  to the container. The image's `init-video` then auto-enables `AUTO_GPU` and
-  uses the (single) render node for zero-copy rendering and VA-API encoding.
-- If GPU numbering changes (e.g. after a driver or kernel update), re-detect:
-  `for r in /sys/class/drm/renderD*; do echo "$r $(cat $r/device/vendor)"; done`
-  (`0x1002` = AMD, `0x10de` = NVIDIA) and update the two `devices:` lines.
-- Chrome 136+ binds the debug port to 127.0.0.1 inside the container; the
-  Docker port publishing cannot reach that loopback listener. Use the MCP
-  companion below for LAN access.
-
-## Verify GPU rendering
-
-While the container is running:
+Labwc starts the embedded Chromium supervisor. If Chromium exits, it is
+restarted up to three times with delays of 5, 10, and 15 seconds. Running for at
+least five minutes resets the recovery budget. If all three restarted processes
+also exit quickly, the supervisor latches in `failed` state and makes no further
+attempts until the container is deliberately restarted:
 
 ```bash
-docker exec chrome-stealth /usr/bin/chromium --version
+docker compose restart chrome-stealth
 ```
 
-- In the session web UI, open `chrome://gpu`: GPU must be enabled, and the
-  renderer should list the AMD GPU (Radeon, PCI 12:00.0) for compositing and
-  video decode — not the NVIDIA card.
-- Startup log lines to check: `docker logs chrome-stealth 2>&1 | grep -iE 'gpu|video|render'`
-  should show `permissions for /dev/dri/... are good` and `AUTO_GPU` enabled.
+Keeping the container alive after the latch preserves the desktop and diagnostic
+endpoint. Docker restart policies do not react to health-check failures; they
+only react when the container's main process exits.
 
-## MCP: Chrome DevTools over the LAN
+`/healthz` returns HTTP 200 only when both the MCP gateway and Chromium CDP are
+available. Otherwise it returns HTTP 503. Its JSON body reports `gateway`,
+`chrome_cdp`, supervisor counters, the last exit code, and a human-readable
+`error`. Docker uses this same endpoint for the container health status.
 
-`docker compose up -d --build` starts the browser and a companion container with
-the latest chrome-devtools-mcp and Supergateway packages at build time. The companion shares Chrome's
-network namespace and connects to its internal `127.0.0.1:9222` listener.
-Supergateway exposes a stateful Streamable HTTP endpoint on port 8933.
+Example latched response:
 
-Endpoint on this host: `http://192.168.0.188:8933/mcp` (update if DHCP changes).
-The gateway requires a bearer token stored as `SUPERGATEWAY_API_KEY` in `chrome/.env`.
-That file is ignored by Git. Copy the token securely to the client machine.
-For a fresh checkout, create `.env` in this directory with that variable before starting.
+```json
+{
+  "status": "unhealthy",
+  "error": "Chromium exited after 3 automatic restart attempts; recovery is latched until the container is restarted",
+  "gateway": "available",
+  "chrome_cdp": "unavailable",
+  "supervisor": {
+    "state": "failed",
+    "restart_attempts": 3,
+    "max_restart_attempts": 3,
+    "last_exit_code": 1
+  }
+}
+```
 
-Codex client configuration on the other machine:
+## MCP client configuration
+
+LAN endpoint on this host: `http://192.168.0.188:8933/mcp` (update if DHCP
+changes). Codex client configuration on another machine:
 
 ```toml
 [mcp_servers.chrome-devtools]
@@ -113,39 +139,51 @@ url = "http://192.168.0.188:8933/mcp"
 bearer_token_env_var = "CHROME_MCP_TOKEN"
 ```
 
-Set `CHROME_MCP_TOKEN` in the client's environment to the token from `.env`.
-Other Streamable HTTP clients can use the same URL and an
-`Authorization: Bearer <token>` header.
+Set `CHROME_MCP_TOKEN` in the client environment to the value from `chrome/.env`.
+Other Streamable HTTP clients can use an `Authorization: Bearer <token>` header.
 
 The endpoint controls the existing browser session, including logged-in tabs.
-Use on a trusted LAN only: HTTP does not encrypt the token or browser data.
-Do not forward port 8933 from the Internet. `/healthz` is unauthenticated and
-returns HTTP 200 only when both the MCP gateway and Chromium's CDP endpoint on
-port 9222 are available; otherwise it returns HTTP 503. The companion container
-uses the same probe for its Docker health status. Its JSON response includes the
-gateway, CDP, and Chromium supervisor state, a human-readable error when
-unhealthy, and the last browser exit code.
-Docker does not restart an unhealthy container automatically: restart policies
-react to the container's main process exiting, not to health-check failures.
-The web UI is available only on localhost port 3001. CDP port 9222 is internal only and is not
-published to the host; the MCP companion accesses it through shared loopback.
-After recreating Chrome, use `docker compose up -d` for the whole stack so the
-companion joins its current network namespace.
+Use it only on a trusted LAN: plain HTTP does not encrypt the token or browser
+data. Do not forward port 8933 from the Internet.
 
-Chromium is supervised separately from the container. After an exit it is
-restarted up to three times, with a short increasing delay. A run lasting at
-least five minutes resets that recovery budget. If all three recovery attempts
-also exit quickly, the supervisor latches in `failed` state and makes no more
-attempts until `chrome-stealth` is deliberately restarted. This avoids an
-unbounded crash loop while leaving the desktop and diagnostic endpoint running.
+## GPU and browser configuration
 
-References: [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp),
-[Supergateway](https://github.com/supercorp-ai/supergateway),
-[Codex MCP configuration](https://developers.openai.com/codex/mcp).
+- `CHROME_CLI`, not `CHROMIUM_FLAGS`, supplies Chromium flags. The wrapper adds
+  `--no-sandbox --password-store=basic --test-type`.
+- Chrome 136+ requires the non-default `--user-data-dir` for the remote-debugging
+  port. The configured profile path is persistent under `/config`.
+- Only the AMD card is mounted: card2/renderD129 (PCI 12:00.0, vendor 0x1002).
+  The NVIDIA card at card1/renderD128 is deliberately unavailable to Chromium.
+- If GPU numbering changes, re-detect it with:
+
+  ```bash
+  for r in /sys/class/drm/renderD*; do echo "$r $(cat "$r/device/vendor")"; done
+  ```
+
+  `0x1002` is AMD and `0x10de` is NVIDIA. Update both `devices` mappings in
+  `docker-compose.yml` when necessary.
+
+Verify the browser version with:
+
+```bash
+docker exec chrome-stealth /usr/bin/chromium --version
+```
+
+In the web UI, `chrome://gpu` should identify the AMD renderer and show hardware
+acceleration for compositing and video decode. Relevant startup messages are
+available with:
+
+```bash
+docker logs chrome-stealth 2>&1 | grep -iE 'gpu|video|render'
+```
 
 ## Profile
 
-`~/docker-data/chrome/` is mounted at `/config` (the container user's home), so
-bookmarks, history, cookies and the debugging profile persist across container
-updates. All container data for this service lives under `~/docker-data/`,
-outside the repo.
+`~/docker-data/chrome/` is mounted at `/config`, so bookmarks, history, cookies,
+extensions, and the debugging profile survive image and container updates. All
+runtime data lives outside the repository.
+
+References: [LinuxServer Chromium](https://docs.linuxserver.io/images/docker-chromium/),
+[Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp),
+[Supergateway](https://github.com/supercorp-ai/supergateway), and
+[Codex MCP configuration](https://developers.openai.com/codex/mcp).

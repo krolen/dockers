@@ -6,15 +6,11 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
 docker compose -f docker-compose.yml config --quiet
 
-echo "Pulling the latest Chromium image..."
+echo "Pulling the latest merged Chromium MCP image..."
 # Pull before recreation so a failed download leaves the current stack running.
 docker compose -f docker-compose.yml pull chrome-stealth
 
-echo "Building the MCP companion with the latest base image and npm packages..."
-docker compose -f docker-compose.yml build --pull --no-cache chrome-devtools-mcp
-
-echo "Recreating Chromium and MCP (active connections will be interrupted)..."
-# Both containers must be recreated because MCP shares Chromium's network namespace.
+echo "Recreating Chromium MCP (active connections will be interrupted)..."
 docker compose -f docker-compose.yml up -d --force-recreate --wait --wait-timeout 60
 docker compose -f docker-compose.yml ps
 
@@ -44,5 +40,4 @@ cleanup_images() {
     done
 }
 
-cleanup_images chrome-stealth 'org.opencontainers.image.source=https://github.com/linuxserver/docker-chromium'
-cleanup_images chrome-devtools-mcp 'io.krolen.dockers.image=chrome-devtools-mcp'
+cleanup_images chrome-stealth 'io.krolen.dockers.image=chrome'
