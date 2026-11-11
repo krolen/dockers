@@ -119,11 +119,25 @@ Other Streamable HTTP clients can use the same URL and an
 
 The endpoint controls the existing browser session, including logged-in tabs.
 Use on a trusted LAN only: HTTP does not encrypt the token or browser data.
-Do not forward port 8933 from the Internet. `/healthz` is unauthenticated.
+Do not forward port 8933 from the Internet. `/healthz` is unauthenticated and
+returns HTTP 200 only when both the MCP gateway and Chromium's CDP endpoint on
+port 9222 are available; otherwise it returns HTTP 503. The companion container
+uses the same probe for its Docker health status. Its JSON response includes the
+gateway, CDP, and Chromium supervisor state, a human-readable error when
+unhealthy, and the last browser exit code.
+Docker does not restart an unhealthy container automatically: restart policies
+react to the container's main process exiting, not to health-check failures.
 The web UI is available only on localhost port 3001. CDP port 9222 is internal only and is not
 published to the host; the MCP companion accesses it through shared loopback.
 After recreating Chrome, use `docker compose up -d` for the whole stack so the
 companion joins its current network namespace.
+
+Chromium is supervised separately from the container. After an exit it is
+restarted up to three times, with a short increasing delay. A run lasting at
+least five minutes resets that recovery budget. If all three recovery attempts
+also exit quickly, the supervisor latches in `failed` state and makes no more
+attempts until `chrome-stealth` is deliberately restarted. This avoids an
+unbounded crash loop while leaving the desktop and diagnostic endpoint running.
 
 References: [Chrome DevTools MCP](https://github.com/ChromeDevTools/chrome-devtools-mcp),
 [Supergateway](https://github.com/supercorp-ai/supergateway),

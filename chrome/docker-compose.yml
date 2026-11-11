@@ -33,6 +33,9 @@ services:
       - /dev/dri/renderD129:/dev/dri/renderD129
     volumes:
       - ~/docker-data/chrome:/config
+      # Labwc runs this once at desktop startup. The script keeps Chromium
+      # running, but latches after a bounded number of rapid failures.
+      - ./supervise-chromium.sh:/config/.config/labwc/autostart:ro
     ports:
       - "127.0.0.1:3001:3001"  # Local-only Selkies web UI (HTTPS, self-signed cert)
       - "8933:8933"  # Streamable HTTP MCP: /mcp
@@ -43,6 +46,10 @@ services:
     build: ./mcp
     environment:
       SUPERGATEWAY_API_KEY: ${SUPERGATEWAY_API_KEY:?Set SUPERGATEWAY_API_KEY in chrome/.env}
+      CHROME_SUPERVISOR_STATUS_FILE: /chrome-config/.chromium-supervisor-status.json
+    volumes:
+      # Read-only access lets /healthz report the supervisor's latched state.
+      - ~/docker-data/chrome:/chrome-config:ro
     container_name: chrome-devtools-mcp
     # Share Chrome's loopback so CDP is reachable without a proxy.
     network_mode: "service:chrome-stealth"
@@ -51,4 +58,14 @@ services:
         condition: service_started
         restart: true
     init: true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8933/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
