@@ -1,5 +1,5 @@
 ARG NODE_IMAGE=node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
-ARG CHROMIUM_IMAGE=lscr.io/linuxserver/chromium@sha256:59d1bfa98a6ab759fce078e5a714de3920f4c618b8939a0df6e1dec7d25c7aba
+ARG CHROMIUM_IMAGE=lscr.io/linuxserver/chromium:latest@sha256:59d1bfa98a6ab759fce078e5a714de3920f4c618b8939a0df6e1dec7d25c7aba
 
 FROM ${NODE_IMAGE} AS node-runtime
 

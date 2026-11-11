@@ -35,7 +35,20 @@ The only runtime data mount is `~/docker-data/chrome:/config`.
 
 ## Image contents and build
 
-The Dockerfile pins the validated base-image digests and npm package versions.
+The Dockerfile records exact base-image digests and npm package versions. Refresh
+those inputs as a separate, reviewable step:
+
+```bash
+chrome/update_versions.sh
+git diff -- chrome/Dockerfile
+```
+
+The updater pulls the current Node 22 and LinuxServer Chromium tags, resolves
+their immutable repository digests, queries the current Chrome DevTools MCP and
+Supergateway versions, and writes all four values into the Dockerfile. If
+nothing changed, the Dockerfile remains unchanged and subsequent builds can use
+their normal cache.
+
 To build a local development image:
 
 ```bash
@@ -43,33 +56,34 @@ docker build --pull --tag kkulagin/chrome:dev .
 CHROME_IMAGE=kkulagin/chrome:dev docker compose up -d --force-recreate --wait
 ```
 
-To publish a release, replace `1.0.0` with the intended immutable version:
+After reviewing the Dockerfile change, build and publish exactly what it records:
 
 ```bash
-docker build --pull \
-  --tag kkulagin/chrome:1.0.0 \
-  --tag kkulagin/chrome:latest \
-  .
-docker push kkulagin/chrome:1.0.0
-docker push kkulagin/chrome:latest
+./push_to_hub.sh chrome latest
 ```
+
+Pass a version instead of `latest` when publishing an immutable release tag.
+The generic publisher contains no Chrome-specific update logic; it only builds
+the selected directory's Dockerfile and pushes the requested tag.
 
 Never add `.env`, the MCP token, or browser-profile data to the image. The
 `.dockerignore` excludes `.env` from the build context.
 
 ## Update
 
-Run the update script from any directory:
+Run the FabricU deployment updater from any directory:
 
 ```bash
-chrome/update.sh
+scripts/update_chrome.sh
 ```
 
-It validates Compose, pulls `kkulagin/chrome:latest`, and recreates the single
-container only after a successful pull. This interrupts active browser and MCP
-connections, but preserves the profile under `~/docker-data/chrome/`. Cleanup
-keeps the two newest locally available custom images and never performs a broad
-image prune.
+It validates Compose and pulls `kkulagin/chrome:latest`. If the existing
+`chrome-stealth` container already uses that exact image ID, the script exits
+without starting, stopping, or recreating anything. This includes deliberately
+stopped or unhealthy containers. When the pulled image ID differs—or the
+container does not exist—it deploys the published image and waits for health.
+The profile under `~/docker-data/chrome/` is preserved. Cleanup keeps the two
+newest locally available custom images and never performs a broad image prune.
 
 ### Roll back
 
