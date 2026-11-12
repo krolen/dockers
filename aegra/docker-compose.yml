@@ -1,0 +1,42 @@
+services:
+
+  # Aegra Server
+  aegra:
+    command: |
+      sh -c "
+        echo 'Running database migrations...' &&
+        alembic upgrade head &&
+        echo 'Starting Aegra server...' &&
+        uvicorn aegra_api.main:app --host 0.0.0.0 --port $${PORT:-2026}
+      "
+    environment:
+      - PROJECT_NAME=${PROJECT_NAME:-Aegra}
+      - VERSION=${VERSION:-"0.1.0"}
+      - DEBUG=${DEBUG:-false}
+      - AEGRA_CONFIG=${AEGRA_CONFIG:-aegra.json}
+      - POSTGRES_DB=${POSTGRES_DB:-aegra}
+      - POSTGRES_HOST=${POSTGRES_HOST:-192.168.0.100}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_USER=${POSTGRES_USER:-aegra_user}
+      - DB_ECHO_LOG=${DB_ECHO_LOG:-false}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-2026}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ENV_MODE=${ENV_MODE:-PRODUCTION}
+      - LOG_VERBOSITY=${LOG_VERBOSITY:-standard}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-...}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-aegra-backend}
+      - OTEL_TARGETS=${OTEL_TARGETS:-""}
+      - OTEL_CONSOLE_EXPORT=${OTEL_CONSOLE_EXPORT:-false}
+      - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-...}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-...}
+      - AUTH_TYPE=${AUTH_TYPE:-noop}
+    image: kkulagin/aegra:latest
+    ports:
+      - ${PORT:-2026}:${PORT:-2026}
+    restart: unless-stopped
+    volumes:
+      - /mnt/MyPool/myapps/nfs/aegra/agents:/app/agents
+      - /mnt/MyPool/myapps/nfs/aegra/aegra.json:/app/aegra.json
