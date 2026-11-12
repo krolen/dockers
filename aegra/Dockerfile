@@ -15,8 +15,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Create non-root user for runtime
-RUN addgroup --system app && adduser --system --ingroup app app
+# Match the TrueNAS apps account used for the NAS bind mounts.
+RUN addgroup --system --gid 568 app && adduser --system --uid 568 --ingroup app app
 
 # -----------------------------
 # Source stage: fetch pinned agra release from GitHub

@@ -24,6 +24,16 @@ The bind mount hides the example config packaged in the image, so updating the
 image does not replace the NAS config or agent files. Any additional Python
 packages required by custom agents need to be included in the image.
 
+The image and Compose run the container as the TrueNAS `apps` user and group
+(UID/GID `568:568`). On the NAS, grant `apps` read access to `aegra.json` and
+read/traverse access to the `aegra` and `agents` directories. Keep `kot` as
+the owner for NFS development access. Make the `apps` access inheritable for
+new files uploaded under `agents`. The config mount is read-only inside the
+container.
+
+After startup, `GET /` reports the installed Aegra version in its `version`
+field (for example, `curl http://<nas-host>:2026/`).
+
 Set the database connection and any API keys through Compose environment
 variables or a NAS environment file. The Compose defaults for passwords and
 keys are placeholders. `AUTH_TYPE=noop` leaves the published API without

@@ -2,6 +2,7 @@ services:
 
   # Aegra Server
   aegra:
+    user: "568:568" # TrueNAS apps user and group
     command: |
       sh -c "
         echo 'Running database migrations...' &&
@@ -11,7 +12,6 @@ services:
       "
     environment:
       - PROJECT_NAME=${PROJECT_NAME:-Aegra}
-      - VERSION=${VERSION:-"0.1.0"}
       - DEBUG=${DEBUG:-false}
       - AEGRA_CONFIG=${AEGRA_CONFIG:-aegra.json}
       - POSTGRES_DB=${POSTGRES_DB:-aegra}
@@ -27,7 +27,7 @@ services:
       - LOG_VERBOSITY=${LOG_VERBOSITY:-standard}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-...}
       - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-aegra-backend}
-      - OTEL_TARGETS=${OTEL_TARGETS:-""}
+      - OTEL_TARGETS=${OTEL_TARGETS:-}
       - OTEL_CONSOLE_EXPORT=${OTEL_CONSOLE_EXPORT:-false}
       - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL:-https://cloud.langfuse.com}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-...}
@@ -39,4 +39,4 @@ services:
     restart: unless-stopped
     volumes:
       - /mnt/MyPool/myapps/nfs/aegra/agents:/app/agents
-      - /mnt/MyPool/myapps/nfs/aegra/aegra.json:/app/aegra.json
+      - /mnt/MyPool/myapps/nfs/aegra/aegra.json:/app/aegra.json:ro
